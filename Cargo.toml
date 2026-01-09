@@ -1,7 +1,14 @@
 [package]
 name = "kovi-plugin-mail"
+description = "基于 Kovi 框架的新邮件提醒插件"
+authors = ["Hamster5295 <hamster5295@163.com>"]
 version = "0.1.0"
 edition = "2024"
+keywords = ["kovi", "plugin", "mail"]
+license = "MIT"
+repository = "https://github.com/Hamster5295/kovi-mail"
+documentation = "https://docs.rs/kovi-plugin-mail"
+readme = "README.md"
 
 [lib]
 name = "kovi_plugin_mail"
@@ -9,10 +16,10 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = ">=1.0.98"
-async-imap = { version = "0.11.0", default-features = false, features = [
+async-imap = { version = ">=0.11.0", default-features = false, features = [
     "runtime-tokio",
 ] }
-async-native-tls = { version = "0.5.0", default-features = false, features = [
+async-native-tls = { version = ">=0.5.0", default-features = false, features = [
     "runtime-tokio",
 ] }
 base64 = ">=0.22.1"
