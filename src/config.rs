@@ -9,6 +9,8 @@ use kovi::{
 };
 use serde::Deserialize;
 
+use crate::consts::*;
+
 #[derive(Deserialize, Clone)]
 pub(crate) struct MailConfig {
     server: String,
@@ -27,12 +29,12 @@ pub(crate) struct Config {
 }
 
 pub(crate) async fn init(path: PathBuf) -> Result<Config> {
-    let config_path = path.join("config.toml");
+    let config_path = path.join(CONFIG_PATH);
 
     let config_txt = match fs::read_to_string(&config_path).await {
         Ok(txt) => txt,
         Err(e) => {
-            warn!("[mail] Failed to read config file: {e}");
+            warn!("[{PLUGIN_HEAD}] Failed to read config file: {e}");
             String::new()
         }
     };

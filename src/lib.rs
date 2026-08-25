@@ -1,3 +1,4 @@
+mod consts;
 mod config;
 
 use std::{collections::HashMap, sync::Arc};
@@ -13,7 +14,8 @@ use kovi::{
 };
 use kovi_onebot::*;
 
-use crate::config::MailConfig;
+use config::MailConfig;
+use consts::*;
 
 type MailSession = Session<TlsStream<TcpStream>>;
 type MailSessions = HashMap<String, Arc<RwLock<MailSession>>>;
@@ -35,7 +37,7 @@ async fn main() {
 
     let sessions: Arc<RwLock<MailSessions>> = Arc::new(RwLock::new(MailSessions::new()));
 
-    info!("[mail] Connecting to mail servers.");
+    info!("[{PLUGIN_HEAD}] Connecting to mail servers.");
 
     for cfg in config.mails {
         let state = State {
@@ -43,7 +45,7 @@ async fn main() {
         };
         let state = Arc::new(RwLock::new(state));
 
-        info!("[mail] {} initialized.", &cfg.email);
+        info!("[{PLUGIN_HEAD}] {} initialized.", &cfg.email);
 
         plugin::cron(&format!("0 0/{} * * * ?", config.interval), {
             let bot = bot.clone();
@@ -59,7 +61,7 @@ async fn main() {
         move || on_drop(sessions.clone())
     });
 
-    info!("[mail] Ready to put eyes on mails!")
+    info!("[{PLUGIN_HEAD}] Ready to put eyes on mails!")
 }
 
 async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<MailInfo, String> {
@@ -100,18 +102,18 @@ async fn check_mails(
     sessions: Arc<RwLock<MailSessions>>,
     state: Arc<RwLock<State>>,
 ) {
-    info!("[mail] Checking mails...");
+    info!("[{PLUGIN_HEAD}] Checking mails...");
 
     let session = match time::timeout(time::Duration::from_secs(10), cfg.build_session()).await {
         Ok(session) => session,
         Err(e) => {
-            warn!("[mail] Timeout when connecting to mail server: {e}.");
+            warn!("[{PLUGIN_HEAD}] Timeout when connecting to mail server: {e}.");
             return;
         }
     };
 
     if let Err(e) = session {
-        warn!("[mail] Failed to connect to mail server: {e}.");
+        warn!("[{PLUGIN_HEAD}] Failed to connect to mail server: {e}.");
         return;
     }
 
@@ -121,11 +123,11 @@ async fn check_mails(
         .await
         .insert(cfg.email.clone(), session.clone());
 
-    info!("[mail] Connected to {}.", &cfg.email);
+    info!("[{PLUGIN_HEAD}] Connected to {}.", &cfg.email);
 
     let mail = pull_mails(&session).await;
     if mail.is_err() {
-        warn!("[mail] <{}> {}", cfg.email, mail.unwrap_err());
+        warn!("[{PLUGIN_HEAD}] <{}> {}", cfg.email, mail.unwrap_err());
         return;
     }
 
@@ -135,7 +137,7 @@ async fn check_mails(
 
     if mail.date > state.date {
         state.date = mail.date;
-        info!("[mail] New mail detected!");
+        info!("[{PLUGIN_HEAD}] New mail detected!");
         let message = format!("{} 收到新邮件！\n{}", &cfg.email, mail.subject);
         if let Some(users) = &cfg.notify_users {
             for user in users {
@@ -148,13 +150,13 @@ async fn check_mails(
             }
         }
     } else {
-        info!("[mail] No new mail detected.");
+        info!("[{PLUGIN_HEAD}] No new mail detected.");
     }
 
     if let Err(e) = session.write().await.logout().await {
-        warn!("[mail] Error when logging out: {e}.");
+        warn!("[{PLUGIN_HEAD}] Error when logging out: {e}.");
     } else {
-        info!("[mail] Logged out from {}.", &cfg.email);
+        info!("[{PLUGIN_HEAD}] Logged out from {}.", &cfg.email);
     }
     sessions.write().await.remove(&cfg.email);
 }
@@ -166,5 +168,5 @@ async fn on_drop(sessions: Arc<RwLock<MailSessions>>) {
         session.logout().await.unwrap();
     }
     sessions.clear();
-    info!("[mail] Logged out mail sessions");
+    info!("[{PLUGIN_HEAD}] Logged out mail sessions");
 }
