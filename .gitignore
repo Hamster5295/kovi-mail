@@ -1,3 +1,5 @@
 Makefile
 target/
 config/
+
+Cargo.lock
