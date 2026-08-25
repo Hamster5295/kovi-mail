@@ -1,8 +1,9 @@
-mod consts;
 mod config;
+mod consts;
 
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Context;
 use async_imap::{Session, types::Fetch};
 use async_native_tls::TlsStream;
 use futures::TryStreamExt;
@@ -33,7 +34,10 @@ struct MailInfo {
 #[kovi::plugin]
 async fn main() {
     let bot = plugin::get_runtime_bot();
-    let config = config::init(bot.get_data_path()).await.unwrap();
+    let config = config::init(bot.get_data_path())
+        .await
+        .with_context(|| format!("[{PLUGIN_HEAD}] Error when parsing config:"))
+        .unwrap();
 
     let sessions: Arc<RwLock<MailSessions>> = Arc::new(RwLock::new(MailSessions::new()));
 

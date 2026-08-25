@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_imap::{Client, Session};
 use async_native_tls::{TlsConnector, TlsStream};
 use kovi::{
@@ -45,14 +45,14 @@ pub(crate) async fn init(path: PathBuf) -> Result<Config> {
         if let Some(nus) = &mail.notify_users {
             for nu in nus {
                 if let None = nu.try_as_i64() {
-                    panic!("[{PLUGIN_HEAD}] Invalid user id: '{nu}' should be an i64!")
+                    return Err(anyhow!("Invalid user id: '{nu}' should be an i64!"));
                 }
             }
         }
         if let Some(nus) = &mail.notify_groups {
             for nu in nus {
                 if let None = nu.try_as_i64() {
-                    panic!("[{PLUGIN_HEAD}] Invalid group id: '{nu}' should be an i64!")
+                    return Err(anyhow!("Invalid group id: '{nu}' should be an i64!"));
                 }
             }
         }
