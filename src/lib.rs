@@ -36,7 +36,7 @@ async fn main() {
     let bot = plugin::get_runtime_bot();
     let config = config::init(bot.get_data_path())
         .await
-        .with_context(|| format!("[{PLUGIN_HEAD}] Error when parsing config:"))
+        .with_context(|| format!("[{PLUGIN_HEAD}] Error when parsing config"))
         .unwrap();
 
     let sessions: Arc<RwLock<MailSessions>> = Arc::new(RwLock::new(MailSessions::new()));
