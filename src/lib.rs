@@ -11,6 +11,7 @@ use kovi::{
     log::{info, warn},
     tokio::{net::TcpStream, sync::RwLock, time},
 };
+use kovi_onebot::*;
 
 use crate::config::MailConfig;
 
