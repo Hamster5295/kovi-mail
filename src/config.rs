@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_imap::{Client, Session};
 use async_native_tls::{TlsConnector, TlsStream};
 use kovi::{
+    event::id::ID,
     log::warn,
     tokio::{fs, net::TcpStream},
 };
@@ -18,8 +19,8 @@ pub(crate) struct MailConfig {
     pub(crate) email: String,
     password: String,
     inbox: Option<String>,
-    pub(crate) notify_users: Option<Vec<i64>>,
-    pub(crate) notify_groups: Option<Vec<i64>>,
+    pub(crate) notify_users: Option<Vec<ID>>,
+    pub(crate) notify_groups: Option<Vec<ID>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -39,7 +40,25 @@ pub(crate) async fn init(path: PathBuf) -> Result<Config> {
         }
     };
 
-    Ok(toml::from_str::<Config>(&config_txt)?)
+    let config = toml::from_str::<Config>(&config_txt)?;
+    for mail in &config.mails {
+        if let Some(nus) = &mail.notify_users {
+            for nu in nus {
+                if let None = nu.try_as_i64() {
+                    panic!("[{PLUGIN_HEAD}] Invalid user id: '{nu}' should be an i64!")
+                }
+            }
+        }
+        if let Some(nus) = &mail.notify_groups {
+            for nu in nus {
+                if let None = nu.try_as_i64() {
+                    panic!("[{PLUGIN_HEAD}] Invalid group id: '{nu}' should be an i64!")
+                }
+            }
+        }
+    }
+
+    Ok(config)
 }
 
 impl MailConfig {

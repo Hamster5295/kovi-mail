@@ -141,12 +141,12 @@ async fn check_mails(
         let message = format!("{} 收到新邮件！\n{}", &cfg.email, mail.subject);
         if let Some(users) = &cfg.notify_users {
             for user in users {
-                bot.send_private_msg(user.to_owned(), message.clone());
+                bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
             }
         }
         if let Some(groups) = &cfg.notify_groups {
             for group in groups {
-                bot.send_private_msg(group.to_owned(), message.clone());
+                bot.send_private_msg(group.try_as_i64_or_panic(), message.clone());
             }
         }
     } else {
