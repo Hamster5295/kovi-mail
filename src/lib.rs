@@ -1,6 +1,8 @@
 mod config;
 mod consts;
 
+// FIXME: daaki-imap currently does not support `ID` command
+
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
