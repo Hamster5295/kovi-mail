@@ -23,6 +23,9 @@ Mail 可以通过 `toml` 文件进行配置。如果配置文件不存在，则�
 # 检查间隔(分钟)
 interval = 5
 
+# 拉取超时时间(秒)
+timeout = 40
+
 # 要检查的邮箱们
 [[mails]]
 server = "imap.xxx.com"         # IMAP 地址

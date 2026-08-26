@@ -1,24 +1,25 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::OnceLock, time::Duration};
 
 use anyhow::{Result, anyhow};
-use async_imap::{Client, Session};
-use async_native_tls::{TlsConnector, TlsStream};
+use daaki_imap::{ImapConnection, TlsMode};
 use kovi::{
     event::id::ID,
-    log::warn,
-    tokio::{fs, net::TcpStream},
+    log::{info, warn},
+    tokio::fs,
 };
 use serde::Deserialize;
 
 use crate::consts::*;
+
+pub(crate) static CONFIG: OnceLock<Config> = OnceLock::new();
 
 #[derive(Deserialize, Clone)]
 pub(crate) struct MailConfig {
     server: String,
     port: Option<u16>,
     pub(crate) email: String,
-    password: String,
     inbox: Option<String>,
+    password: String,
     pub(crate) notify_users: Option<Vec<ID>>,
     pub(crate) notify_groups: Option<Vec<ID>>,
 }
@@ -26,6 +27,7 @@ pub(crate) struct MailConfig {
 #[derive(Deserialize, Clone)]
 pub(crate) struct Config {
     pub(crate) interval: u64,
+    pub(crate) timeout: Option<u64>,
     pub(crate) mails: Vec<MailConfig>,
 }
 
@@ -58,39 +60,26 @@ pub(crate) async fn init(path: PathBuf) -> Result<Config> {
         }
     }
 
-    Ok(config)
+    Ok(CONFIG.get_or_init(|| config).clone())
 }
 
 impl MailConfig {
-    pub async fn build_session(&self) -> Result<Session<TlsStream<TcpStream>>> {
-        let addr = (self.server.clone(), self.port.unwrap_or(993));
-        let tcp_stream = TcpStream::connect(addr).await?;
-        let tls = TlsConnector::new();
-        let tls_stream = tls.connect(&self.server, tcp_stream).await?;
+    pub async fn build_session(&self) -> Result<ImapConnection> {
+        let timeout = Duration::from_secs(CONFIG.get().unwrap().timeout.unwrap_or(40));
+        let conn = ImapConnection::connect(
+            &self.server.clone(),
+            self.port.unwrap_or(993),
+            TlsMode::Implicit,
+            timeout,
+        )
+        .await?;
 
-        let mut client = Client::new(tls_stream);
-        let params = [
-            "name",
-            &self.email,
-            "version",
-            "1.0.0",
-            "vendor",
-            "hamster5295",
-            "support-email",
-            &self.email,
-        ];
-        client
-            .run_command_and_check_ok(&format!("ID (\"{}\")", params.join("\" \"")), None)
-            .await?;
+        conn.authenticate_plain(&self.email, &self.password, timeout).await?;
+        info!("[{PLUGIN_HEAD}] {} logged in", self.email);
 
-        let mut session = client
-            .login(&self.email, &self.password)
-            .await
-            .map_err(|e| e.0)?;
-
-        session
-            .select(self.inbox.to_owned().unwrap_or("INBOX".to_string()))
-            .await?;
-        Ok(session)
+        let inbox = self.inbox.clone().unwrap_or("INBOX".to_string());
+        conn.select(&inbox, timeout).await?;
+        info!("[{PLUGIN_HEAD}] {} selected inbox '{}'", self.email, inbox);
+        Ok(conn)
     }
 }

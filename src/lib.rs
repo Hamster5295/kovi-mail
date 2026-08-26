@@ -1,31 +1,31 @@
 mod config;
 mod consts;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::Context;
-use async_imap::{Session, types::Fetch};
-use async_native_tls::TlsStream;
-use futures::TryStreamExt;
+use anyhow::{Context, Result};
+use daaki_imap::{ImapConnection, SequenceSet};
 use kovi::{
     PluginBuilder as plugin, RuntimeBot,
     chrono::{DateTime, FixedOffset, Utc},
     log::{info, warn},
-    tokio::{net::TcpStream, sync::RwLock, time},
+    tokio::sync::RwLock,
 };
 use kovi_onebot::*;
 
 use config::MailConfig;
 use consts::*;
 
-type MailSession = Session<TlsStream<TcpStream>>;
+use crate::config::CONFIG;
+
+type MailSession = ImapConnection;
 type MailSessions = HashMap<String, Arc<RwLock<MailSession>>>;
 
 struct State {
     date: DateTime<FixedOffset>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MailInfo {
     subject: String,
     date: DateTime<FixedOffset>,
@@ -68,38 +68,6 @@ async fn main() {
     info!("[{PLUGIN_HEAD}] Ready to put eyes on mails!")
 }
 
-async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<MailInfo, String> {
-    let mut session = session.write().await;
-    let mails = session
-        .fetch("*", "ALL")
-        .await
-        .map_err(|e| format!("Error when pulling mails: {}", e))?;
-    let messages: Vec<Fetch> = mails
-        .try_collect()
-        .await
-        .map_err(|e| format!("Error when pulling mails: {}", e))?;
-    let fetch = messages.last().ok_or("No available mail found!")?;
-    Ok(MailInfo {
-        subject: {
-            let sub_bytes = &fetch
-                .envelope()
-                .ok_or("No envelop found for the latest mail!")?
-                .subject
-                .clone()
-                .ok_or("No subject found for the latest mail!")?;
-            encoded_words::decode(
-                str::from_utf8(&sub_bytes)
-                    .map_err(|e| format!("Invalid UTF-8 Encoding of Mail Subject: {}", e))?,
-            )
-            .map_err(|e| format!("Error when decoding subject: {}", e))?
-            .decoded
-        },
-        date: fetch
-            .internal_date()
-            .ok_or("No date found for the latest mail!")?,
-    })
-}
-
 async fn check_mails(
     cfg: MailConfig,
     bot: Arc<RuntimeBot>,
@@ -108,20 +76,15 @@ async fn check_mails(
 ) {
     info!("[{PLUGIN_HEAD}] Checking mails...");
 
-    let session = match time::timeout(time::Duration::from_secs(10), cfg.build_session()).await {
+    let session = match cfg.build_session().await {
         Ok(session) => session,
         Err(e) => {
-            warn!("[{PLUGIN_HEAD}] Timeout when connecting to mail server: {e}.");
+            warn!("[{PLUGIN_HEAD}] Failed to connecting to mail server: {e}");
             return;
         }
     };
 
-    if let Err(e) = session {
-        warn!("[{PLUGIN_HEAD}] Failed to connect to mail server: {e}.");
-        return;
-    }
-
-    let session = Arc::new(RwLock::new(session.unwrap()));
+    let session = Arc::new(RwLock::new(session));
     sessions
         .write()
         .await
@@ -129,32 +92,40 @@ async fn check_mails(
 
     info!("[{PLUGIN_HEAD}] Connected to {}.", &cfg.email);
 
-    let mail = pull_mails(&session).await;
-    if mail.is_err() {
-        warn!("[{PLUGIN_HEAD}] <{}> {}", cfg.email, mail.unwrap_err());
+    let mails = pull_mails(&session).await;
+    if mails.is_err() {
+        warn!("[{PLUGIN_HEAD}] <{}> {}", cfg.email, mails.unwrap_err());
         return;
     }
 
-    let mail = mail.unwrap();
-
     let mut state = state.write().await;
+    let mails = mails.unwrap();
+    let mails: Vec<MailInfo> = mails
+        .iter()
+        .cloned()
+        .filter(|m| m.date > state.date)
+        .collect();
 
-    if mail.date > state.date {
-        state.date = mail.date;
-        info!("[{PLUGIN_HEAD}] New mail detected!");
-        let message = format!("{} 收到新邮件！\n{}", &cfg.email, mail.subject);
-        if let Some(users) = &cfg.notify_users {
-            for user in users {
-                bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
+    let subjects: Vec<String> = mails
+        .iter()
+        .map(|mail| {
+            if mail.date > state.date {
+                state.date = mail.date
             }
+            mail.subject.clone()
+        })
+        .collect();
+
+    let message = format!("{} 收到新邮件！\n- {}", &cfg.email, subjects.join("\n- "));
+    if let Some(users) = &cfg.notify_users {
+        for user in users {
+            bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
         }
-        if let Some(groups) = &cfg.notify_groups {
-            for group in groups {
-                bot.send_private_msg(group.try_as_i64_or_panic(), message.clone());
-            }
+    }
+    if let Some(groups) = &cfg.notify_groups {
+        for group in groups {
+            bot.send_private_msg(group.try_as_i64_or_panic(), message.clone());
         }
-    } else {
-        info!("[{PLUGIN_HEAD}] No new mail detected.");
     }
 
     if let Err(e) = session.write().await.logout().await {
@@ -165,10 +136,40 @@ async fn check_mails(
     sessions.write().await.remove(&cfg.email);
 }
 
+async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<Vec<MailInfo>> {
+    let timeout = Duration::from_secs(CONFIG.get().unwrap().timeout.unwrap_or(40));
+    let session = session.write().await;
+
+    let msgs = session
+        .fetch(
+            &SequenceSet::new("1:10")?,
+            &[daaki_imap::types::FetchAttr::Envelope],
+            timeout,
+        )
+        .await?;
+    info!("[{PLUGIN_HEAD}] mail pulled successfully");
+
+    Ok(msgs
+        .iter()
+        .filter_map(|resp| resp.envelope.clone())
+        .filter(|e| e.subject.is_some() && e.date.is_some())
+        .filter_map(|e| {
+            if let Ok(date) = DateTime::parse_from_rfc2822(&e.date.unwrap()) {
+                Some(MailInfo {
+                    subject: e.subject.unwrap(),
+                    date: date,
+                })
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
 async fn on_drop(sessions: Arc<RwLock<MailSessions>>) {
     let mut sessions = sessions.write().await;
     for (_, s) in sessions.iter() {
-        let mut session = s.write().await;
+        let session = s.write().await;
         session.logout().await.unwrap();
     }
     sessions.clear();
