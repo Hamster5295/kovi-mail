@@ -74,7 +74,15 @@ impl MailConfig {
         )
         .await?;
 
-        conn.authenticate_plain(&self.email, &self.password, timeout).await?;
+        let ids = [
+            ("name", Some("kovi-plugin-mail")),
+            ("version", Some("1.1.0")),
+            ("vendor", Some("hamster5295")),
+            ("support-email", Some(self.email.as_str())),
+        ];
+        conn.id(&ids, timeout).await?;
+
+        conn.login(&self.email, &self.password, timeout).await?;
         info!("[{PLUGIN_HEAD}] {} logged in", self.email);
 
         let inbox = self.inbox.clone().unwrap_or("INBOX".to_string());

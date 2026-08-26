@@ -1,8 +1,6 @@
 mod config;
 mod consts;
 
-// FIXME: daaki-imap currently does not support `ID` command
-
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
@@ -108,25 +106,29 @@ async fn check_mails(
         .filter(|m| m.date > state.date)
         .collect();
 
-    let subjects: Vec<String> = mails
-        .iter()
-        .map(|mail| {
-            if mail.date > state.date {
-                state.date = mail.date
-            }
-            mail.subject.clone()
-        })
-        .collect();
+    if mails.len() == 0 {
+        info!("[{PLUGIN_HEAD}] no new mails found for {}", &cfg.email);
+    } else {
+        let subjects: Vec<String> = mails
+            .iter()
+            .map(|mail| {
+                if mail.date > state.date {
+                    state.date = mail.date
+                }
+                mail.subject.clone()
+            })
+            .collect();
 
-    let message = format!("{} 收到新邮件！\n- {}", &cfg.email, subjects.join("\n- "));
-    if let Some(users) = &cfg.notify_users {
-        for user in users {
-            bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
+        let message = format!("{} 收到新邮件！\n- {}", &cfg.email, subjects.join("\n- "));
+        if let Some(users) = &cfg.notify_users {
+            for user in users {
+                bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
+            }
         }
-    }
-    if let Some(groups) = &cfg.notify_groups {
-        for group in groups {
-            bot.send_private_msg(group.try_as_i64_or_panic(), message.clone());
+        if let Some(groups) = &cfg.notify_groups {
+            for group in groups {
+                bot.send_private_msg(group.try_as_i64_or_panic(), message.clone());
+            }
         }
     }
 
