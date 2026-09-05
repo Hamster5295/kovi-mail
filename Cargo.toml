@@ -2,7 +2,7 @@
 name = "kovi-plugin-mail"
 description = "基于 Kovi 框架的新邮件提醒插件"
 authors = ["Hamster5295 <hamster5295@163.com>"]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 keywords = ["kovi", "plugin", "mail"]
 license = "MIT"
