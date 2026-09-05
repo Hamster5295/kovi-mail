@@ -18,7 +18,7 @@ pub(crate) struct MailConfig {
     server: String,
     port: Option<u16>,
     pub(crate) email: String,
-    inbox: Option<String>,
+    pub(crate) inbox: Option<String>,
     password: String,
     pub(crate) notify_users: Option<Vec<ID>>,
     pub(crate) notify_groups: Option<Vec<ID>>,
@@ -46,14 +46,14 @@ pub(crate) async fn init(path: PathBuf) -> Result<Config> {
     for mail in &config.mails {
         if let Some(nus) = &mail.notify_users {
             for nu in nus {
-                if let None = nu.try_as_i64() {
+                if nu.try_as_i64().is_none() {
                     return Err(anyhow!("Invalid user id: '{nu}' should be an i64!"));
                 }
             }
         }
         if let Some(nus) = &mail.notify_groups {
             for nu in nus {
-                if let None = nu.try_as_i64() {
+                if nu.try_as_i64().is_none() {
                     return Err(anyhow!("Invalid group id: '{nu}' should be an i64!"));
                 }
             }
@@ -84,10 +84,6 @@ impl MailConfig {
 
         conn.login(&self.email, &self.password, timeout).await?;
         info!("[{PLUGIN_HEAD}] {} logged in", self.email);
-
-        let inbox = self.inbox.clone().unwrap_or("INBOX".to_string());
-        conn.select(&inbox, timeout).await?;
-        info!("[{PLUGIN_HEAD}] {} selected inbox '{}'", self.email, inbox);
         Ok(conn)
     }
 }

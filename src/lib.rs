@@ -49,7 +49,7 @@ async fn main() {
         };
         let state = Arc::new(RwLock::new(state));
 
-        info!("[{PLUGIN_HEAD}] {} initialized.", &cfg.email);
+        info!("[{PLUGIN_HEAD}] {} initialized.", cfg.email);
 
         plugin::cron(&format!("0 0/{} * * * ?", config.interval), {
             let bot = bot.clone();
@@ -90,36 +90,41 @@ async fn check_mails(
         .await
         .insert(cfg.email.clone(), session.clone());
 
-    info!("[{PLUGIN_HEAD}] Connected to {}.", &cfg.email);
+    info!("[{PLUGIN_HEAD}] Connected to {}.", cfg.email);
 
-    let mails = pull_mails(&session).await;
-    if mails.is_err() {
-        warn!("[{PLUGIN_HEAD}] <{}> {}", cfg.email, mails.unwrap_err());
+    let mails = pull_mails(&cfg, &session).await;
+    if let Err(e) = mails {
+        warn!("[{PLUGIN_HEAD}] <{}> {}", cfg.email, e);
         return;
     }
 
-    let mut state = state.write().await;
-    let mails = mails.unwrap();
-    let mails: Vec<MailInfo> = mails
-        .iter()
-        .cloned()
-        .filter(|m| m.date > state.date)
-        .collect();
-
-    if mails.len() == 0 {
-        info!("[{PLUGIN_HEAD}] no new mails found for {}", &cfg.email);
-    } else {
-        let subjects: Vec<String> = mails
+    let mails: Vec<MailInfo> = {
+        let state = state.read().await;
+        let mails = mails.unwrap();
+        mails
             .iter()
-            .map(|mail| {
-                if mail.date > state.date {
-                    state.date = mail.date
-                }
-                mail.subject.clone()
-            })
-            .collect();
+            .filter(|m| m.date > state.date)
+            .cloned()
+            .collect()
+    };
 
-        let message = format!("{} 收到新邮件！\n- {}", &cfg.email, subjects.join("\n- "));
+    if mails.is_empty() {
+        info!("[{PLUGIN_HEAD}] no new mails found for {}", cfg.email);
+    } else {
+        let subjects: Vec<String> = {
+            let mut state = state.write().await;
+            mails
+                .iter()
+                .map(|mail| {
+                    if mail.date > state.date {
+                        state.date = mail.date
+                    }
+                    mail.subject.clone()
+                })
+                .collect()
+        };
+
+        let message = format!("{} 收到新邮件！\n- {}", cfg.email, subjects.join("\n- "));
         if let Some(users) = &cfg.notify_users {
             for user in users {
                 bot.send_private_msg(user.try_as_i64_or_panic(), message.clone());
@@ -135,23 +140,34 @@ async fn check_mails(
     if let Err(e) = session.write().await.logout().await {
         warn!("[{PLUGIN_HEAD}] Error when logging out: {e}.");
     } else {
-        info!("[{PLUGIN_HEAD}] Logged out from {}.", &cfg.email);
+        info!("[{PLUGIN_HEAD}] Logged out from {}.", cfg.email);
     }
     sessions.write().await.remove(&cfg.email);
 }
 
-async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<Vec<MailInfo>> {
+async fn pull_mails(
+    config: &MailConfig,
+    session: &Arc<RwLock<MailSession>>,
+) -> Result<Vec<MailInfo>> {
     let timeout = Duration::from_secs(CONFIG.get().unwrap().timeout.unwrap_or(40));
     let session = session.write().await;
 
+    let inbox = config.inbox.clone().unwrap_or("INBOX".to_string());
+    let resp = session.select(&inbox, timeout).await?;
+    info!(
+        "[{PLUGIN_HEAD}] {} selected inbox '{}'",
+        config.email, inbox
+    );
+
+    let range = format!("{}:{}", resp.exists - 10, resp.exists);
     let msgs = session
         .fetch(
-            &SequenceSet::new("1:10")?,
+            &SequenceSet::new(range)?,
             &[daaki_imap::types::FetchAttr::Envelope],
             timeout,
         )
         .await?;
-    info!("[{PLUGIN_HEAD}] mail pulled successfully");
+    info!("[{PLUGIN_HEAD}] {} mail(s) pulled successfully", msgs.len());
 
     Ok(msgs
         .iter()
@@ -161,7 +177,7 @@ async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<Vec<MailInfo>>
             if let Ok(date) = DateTime::parse_from_rfc2822(&e.date.unwrap()) {
                 Some(MailInfo {
                     subject: e.subject.unwrap(),
-                    date: date,
+                    date,
                 })
             } else {
                 None
@@ -172,7 +188,7 @@ async fn pull_mails(session: &Arc<RwLock<MailSession>>) -> Result<Vec<MailInfo>>
 
 async fn on_drop(sessions: Arc<RwLock<MailSessions>>) {
     let mut sessions = sessions.write().await;
-    for (_, s) in sessions.iter() {
+    for s in sessions.values() {
         let session = s.write().await;
         session.logout().await.unwrap();
     }
